@@ -1,0 +1,10 @@
+[Unit]
+Description=PAIS: 9am brief text
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/pais-cave
+ExecStartPre=-/home/ubuntu/pais-cave/.venv/bin/python -m cave.academics_runner
+ExecStart=/home/ubuntu/pais-cave/.venv/bin/python -m cave.brief morning
+TimeoutStartSec=600

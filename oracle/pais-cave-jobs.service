@@ -1,0 +1,9 @@
+[Unit]
+Description=PAIS: scan Gmail for internship updates (Job tab)
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/pais-cave
+ExecStart=/home/ubuntu/pais-cave/.venv/bin/python -m cave.job_runner
+TimeoutStartSec=600

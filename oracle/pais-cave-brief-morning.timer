@@ -1,0 +1,9 @@
+[Unit]
+Description=PAIS 9am brief text
+
+[Timer]
+OnCalendar=*-*-* 08:55:00 America/New_York
+Persistent=false
+
+[Install]
+WantedBy=timers.target

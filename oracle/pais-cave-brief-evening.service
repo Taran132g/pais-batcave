@@ -1,0 +1,10 @@
+[Unit]
+Description=PAIS: 8pm applications check
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/pais-cave
+ExecStartPre=-/home/ubuntu/pais-cave/.venv/bin/python -m cave.job_runner
+ExecStart=/home/ubuntu/pais-cave/.venv/bin/python -m cave.brief evening
+TimeoutStartSec=600

@@ -1,0 +1,14 @@
+[Unit]
+Description=PAIS cave API (getpais.company private dashboard)
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/pais-cave
+ExecStart=/home/ubuntu/pais-cave/.venv/bin/python -m cave.app
+Restart=always
+RestartSec=5
+MemoryMax=150M
+
+[Install]
+WantedBy=multi-user.target

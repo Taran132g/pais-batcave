@@ -1,0 +1,9 @@
+[Unit]
+Description=PAIS: pull Canvas grades, homework and tests (Academics tab)
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/pais-cave
+ExecStart=/home/ubuntu/pais-cave/.venv/bin/python -m cave.academics_runner
+TimeoutStartSec=300

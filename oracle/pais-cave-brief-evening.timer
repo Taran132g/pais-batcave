@@ -1,0 +1,9 @@
+[Unit]
+Description=PAIS 8pm applications check
+
+[Timer]
+OnCalendar=*-*-* 20:00:00 America/New_York
+Persistent=false
+
+[Install]
+WantedBy=timers.target

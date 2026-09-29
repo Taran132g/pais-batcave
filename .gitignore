@@ -1,0 +1,20 @@
+.venv/
+.session_key
+server.log
+__pycache__/
+.pytest_cache/
+static/audio/*.mp3
+# personal data + runtime state (private repo, still keep it out)
+data/
+snapshot.json
+gmail_jobs_cache.json
+.last_push
+*.log
+.env
+.coinbase_key.json
+# copyrighted film still, served only behind login
+oracle/assets/bunker.webp
+# local backups
+.*.bak*
+*.bak*
+.DS_Store

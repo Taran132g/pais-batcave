@@ -1,0 +1,22 @@
+{
+  "roi": {
+    "monthly_target_pct": 20,
+    "coinbase_month_start": {
+      "2026-09": 1100
+    },
+    "_note": "The 20% goal is on the whole portfolio (Yubit + Coinbase). coinbase_month_start overrides a month's Coinbase starting value; otherwise the first value recorded that month is used."
+  },
+  "job": {
+    "target": "Summer 2027 software / AI engineering internship offer",
+    "deadline": "2027-03-31",
+    "applications_goal": 150,
+    "interviews_goal": 10,
+    "offers_goal": 1
+  },
+  "gym": {
+    "workouts_per_week": 4,
+    "active_zone_min_per_week": 150,
+    "steps_per_day": 10000,
+    "sleep_hours": 7.5
+  }
+}
