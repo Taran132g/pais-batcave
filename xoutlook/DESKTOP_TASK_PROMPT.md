@@ -4,8 +4,7 @@ Create a scheduled task named "x-market-outlook" that runs every Monday and Frid
 
 You are my market-outlook reader. Twice a week, read what my trading signal sources posted on X, summarize where each one thinks the market is going, and save the result so my PAIS dashboard shows it.
 
-SOURCES (only these accounts; beware impersonators with similar handles like _drcryptoprofit):
-- Dr. Profit: https://x.com/DrProfitCrypto
+SOURCES (only these accounts; beware impersonators with similar handles):
 - DiligentPlane: https://x.com/DiligentPlane
 - No Limit Gains: https://x.com/NoLimitGains
 - Jason Pizzino: https://x.com/jasonpizzino
@@ -46,11 +45,11 @@ SAVE (do all file writing with python; write to a .tmp file and rename it so the
      "post_count": <total kept posts>, "status": "ok",
      "overall": {"bias": "...", "summary": "...", "agree": "...", "disagree": "..."},
      "sources": [
-       {"name": "Dr. Profit", "handle": "DrProfitCrypto", "post_count": 0, "bias": "...", "summary": "...",
+       {"name": "DiligentPlane", "handle": "DiligentPlane", "post_count": 0, "bias": "...", "summary": "...",
         "assets": [], "levels": [], "quotes": [{"text": "...", "url": "https://x.com/..."}]}
      ]
    }
-   List "sources" in the order above, all 5 every time. If a profile wouldn't load, use bias null and add "error": "<what happened>".
+   List "sources" in the order above, all 4 every time. If a profile wouldn't load, use bias null and add "error": "<what happened>".
    Don't change any other file in that folder. The dashboard picks up the new file automatically.
 2. Write a note to my Obsidian vault at
    /Users/taranveersingh/Library/Mobile Documents/iCloud~md~obsidian/Documents/Digital Brain/Money & Markets/X Market Outlook/YYYY-MM-DD.md

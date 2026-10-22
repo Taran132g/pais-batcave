@@ -13,7 +13,6 @@ from datetime import date, datetime
 
 from . import coinbase_view, config, daily_goal, intraday, live
 from .canvas import TZ
-from .portfolio import portfolio as _portfolio
 from .auth import COOKIE, Authenticator, _read_env_value
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -60,13 +59,16 @@ def login(body: LoginBody, response: Response):
     if not auth.verify_code(body.code):
         raise HTTPException(status_code=401, detail="Access denied.")
     response.set_cookie(COOKIE, auth.issue(), max_age=config.SESSION_DAYS * 86400, httponly=True,
-                        secure=True, samesite="strict", path=config.COOKIE_PATH)
+                        secure=True, samesite="strict", path=config.COOKIE_PATH,
+                        domain=config.COOKIE_DOMAIN)
     return {"ok": True}
 
 
 @app.post("/logout")
 def logout(response: Response):
-    response.delete_cookie(COOKIE, path=config.COOKIE_PATH)
+    response.delete_cookie(COOKIE, path=config.COOKIE_PATH)   # host-only cookie from before the trade subdomain
+    if config.COOKIE_DOMAIN:
+        response.delete_cookie(COOKIE, path=config.COOKIE_PATH, domain=config.COOKIE_DOMAIN)
     return {"ok": True}
 
 
@@ -96,8 +98,19 @@ def snapshot(request: Request):
             data["academics"] = json.loads(academics.read_text())
         except json.JSONDecodeError:
             pass
+    inbox = config.ROOT / "data/academic_mail.json"
+    if inbox.exists() and isinstance(data.get("academics"), dict):
+        try:
+            data["academics"]["inbox"] = json.loads(inbox.read_text())
+        except json.JSONDecodeError:
+            pass
+    issues = sorted((config.ROOT / "data/ai_news").glob("*.json"))
+    if issues:  # AI Brief is written on Oracle now (scout/ai_news.py); newest issue wins
+        try:
+            data["ai_news"] = {"status": "ok", **json.loads(issues[-1].read_text())}
+        except json.JSONDecodeError:
+            pass
     data["daily"] = daily_goal.for_day(datetime.now(TZ).date())
-    data["portfolio"] = _portfolio(data.get("roi") or {})
     return {**data, "age_s": age, "stale": age > config.STALE_AFTER_S}
 
 

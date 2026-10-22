@@ -41,12 +41,13 @@ def mark(trading: dict) -> dict:
     est = yubit_mark.estimate_equity(base, prices)
     start, target = trading.get("month_start"), trading.get("target_pct") or 20
     live = {**est, "priced_at": datetime.now(timezone.utc).isoformat()}
+    out = trading.get("transfers_out") or 0.0  # profit moved to Coinbase still counts as Yubit's return
     if start:
-        mtd = (est["equity_usd"] / start - 1) * 100
+        mtd = ((est["equity_usd"] + out) / start - 1) * 100
         target_balance = start * (1 + target / 100)
         live.update(mtd_pct=round(mtd, 2), progress=round(mtd / target, 3), hit=mtd >= target,
                     target_balance=round(target_balance, 2),
-                    remaining_usd=round(max(0.0, target_balance - est["equity_usd"]), 2))
+                    remaining_usd=round(max(0.0, target_balance - est["equity_usd"] - out), 2))
     for p in live["positions"]:
         margin = p.get("margin")
         if p.get("marked_live") and margin:

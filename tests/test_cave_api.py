@@ -69,3 +69,26 @@ def test_daily_mark_requires_login_and_known_job(client, monkeypatch, tmp_path):
     assert res["done"] == 1 and res["complete"] and res["jobs"][0]["via"] == "marked"
     assert client.post("/daily/mark", json={**body, "url": "https://evil"}).status_code == 404
     assert client.post("/daily/mark", json={**body, "done": False}).json()["done"] == 0
+
+
+def test_login_cookie_is_shared_across_getpais_subdomains(client, monkeypatch):
+    # trade.getpais.company and getpais.company share one sign-in.
+    monkeypatch.setattr(cave_config, "COOKIE_DOMAIN", "getpais.company")
+    ok = client.post("/login", json={"code": pyotp.TOTP(SECRET).now()})
+    assert "domain=getpais.company" in ok.headers["set-cookie"].lower()
+    out = client.post("/logout")
+    cleared = [c.lower() for c in out.headers.get_list("set-cookie")]
+    assert any("domain=getpais.company" in c for c in cleared)
+    assert any("domain=" not in c for c in cleared)  # also the pre-subdomain, host-only cookie
+
+
+def test_snapshot_does_not_compute_the_slow_live_portfolio(client, monkeypatch):
+    # The live whole-portfolio mark took ~18 s per request (price lookups); nothing reads it since the
+    # Agents tab was removed, and the slow response let the desk render before its data arrived.
+    def slow(*_a, **_k):
+        raise AssertionError("snapshot must not compute the live portfolio")
+    monkeypatch.setattr(cave_app, "_portfolio", slow, raising=False)
+    ok = client.post("/login", json={"code": pyotp.TOTP(SECRET).now()})
+    client.cookies.set("pais_session", ok.cookies.get("pais_session"))
+    res = client.get("/snapshot")
+    assert res.status_code == 200 and "portfolio" not in res.json()

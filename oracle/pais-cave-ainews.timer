@@ -1,0 +1,9 @@
+[Unit]
+Description=PAIS write today's AI Brief newsletter
+
+[Timer]
+OnCalendar=*-*-* 06:15:00 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target

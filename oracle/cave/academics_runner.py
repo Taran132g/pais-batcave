@@ -14,7 +14,8 @@ def main() -> int:
         data = canvas.fetch()
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code
-        hint = "Canvas rejected the token; make a new one and update CANVAS_TOKEN." if code == 401 else f"Canvas HTTP {code}"
+        hint = ("Canvas rejected the link. Copy a fresh Calendar Feed URL (or token) into ~/pais-cave/.env."
+                if code in (401, 403, 404) else f"Canvas HTTP {code}")
         data = {"status": "error", "error": hint, "timetable": canvas.load_timetable()}
     except httpx.HTTPError as exc:
         data = {"status": "error", "error": f"Canvas unreachable: {type(exc).__name__}", "timetable": canvas.load_timetable()}

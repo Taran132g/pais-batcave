@@ -1,0 +1,15 @@
+[Unit]
+Description=PAIS: pick today's 6 applications (3 finance + 3 software)
+StartLimitIntervalSec=6h
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/pais-cave
+Environment=PAIS_CLOUD=1
+ExecStart=/home/ubuntu/pais-cave/.venv/bin/python /home/ubuntu/pais-cave/scout/daily_jobs.py
+# web search can fail transiently; the script is a no-op once today's file exists
+Restart=on-failure
+RestartSec=20min
+TimeoutStartSec=1500

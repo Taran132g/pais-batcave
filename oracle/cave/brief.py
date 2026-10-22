@@ -75,13 +75,31 @@ def jobs_line(goal: dict, events: list[dict], day: date) -> str:
 def school_line(ac: dict) -> str | None:
     if ac.get("status") != "ok":
         return None
-    y = ac["yesterday"]
+    y = ac.get("yesterday")
+    if y is None:  # calendar-feed mode: Canvas doesn't say what was submitted
+        return None
     bits = [f"{y['done']}/{y['due']} due items done" if y["due"] else "nothing was due"]
     if y["missed"]:
         bits.append("missed: " + ", ".join(y["missed"][:3]))
     if ac.get("missing"):
         bits.append(f"{ac['missing']} missing total")
     return "School: " + " · ".join(bits)
+
+
+def inbox_line(feed: list[dict], day: date) -> str | None:
+    """Academic mail that arrived on `day` (forwarded PSU Outlook + platforms): grades first."""
+    todays = [e for e in feed if datetime.fromisoformat(e["date"]).astimezone(TZ).date() == day]
+    if not todays:
+        return None
+    grades = [e for e in todays if e["kind"] == "grade"]
+    bits = [f"{len(grades)} grade{'s' * (len(grades) != 1)} posted ({', '.join(e['course'] or e['from'] for e in grades[:3])})"] if grades else []
+    exams = [e for e in todays if e["kind"] == "exam"]
+    if exams:
+        bits.append("exam notice: " + ", ".join(e["course"] or e["subject"][:30] for e in exams[:2]))
+    other = len(todays) - len(grades) - len(exams)
+    if other:
+        bits.append(f"{other} other")
+    return "School mail: " + " · ".join(bits)
 
 
 def gym_line(gym: dict) -> str | None:
@@ -101,7 +119,7 @@ def today_lines(ac: dict, today: date) -> list[str]:
     lines = ["Classes: " + (" | ".join(f"{_clock(c['start'])} {c['course']}" + (f" ({c['room']})" if c.get("room") else "")
                                        for c in classes) if classes else "none today")]
     if ac.get("status") == "no_token":
-        lines.append("Canvas not connected yet (add CANVAS_TOKEN).")
+        lines.append("Canvas not connected yet (send Claude your Canvas Calendar Feed link).")
         return lines
     if ac.get("status") != "ok":
         return lines
@@ -120,20 +138,39 @@ def today_lines(ac: dict, today: date) -> list[str]:
     return lines
 
 
+ROLE_CHARS = 40   # full titles are on the JOB tab; SMS is billed per 153 chars
+
+
+def _short(text: str, n: int = ROLE_CHARS) -> str:
+    return text if len(text) <= n else text[:n - 1].rstrip() + "…"
+
+
 def jobs_list(goal: dict) -> list[str]:
-    return [f"{'✓' if j['done'] else '•'} {CAT_LABEL.get(j.get('category'), '')} {j['company']} - {j['role']}"
+    return [f"{'✓' if j['done'] else '•'} {CAT_LABEL.get(j.get('category'), '')} {j['company']} - {_short(j['role'])}"
             for j in goal.get("jobs", [])]
 
 
-def morning_text(today: date, yesterday_bits: list[str | None], ac: dict, goal_today: dict) -> str:
-    lines = [f"PAIS · {today.strftime('%a %b %-d')}", "", "YESTERDAY", *[b for b in yesterday_bits if b], "", "TODAY",
-             *today_lines(ac, today), ""]
-    if goal_today.get("total"):
-        lines += [f"Apply today ({goal_today['done']}/{goal_today['total']}):", *jobs_list(goal_today),
-                  f"Links + Claude prompt: {SITE} > JOB"]
-    else:
-        lines.append("Today's 6 jobs aren't scouted yet (Mac asleep?). Check the JOB tab later.")
-    return "\n".join(lines)
+def trading_overview(yb: dict | None, today: date) -> str:
+    """The daily Yubit assistant's report, condensed on the Mac (publisher/yubit_brief.py)."""
+    if not yb or yb.get("status") != "ok" or not yb.get("started"):
+        return "Yubit assistant hasn't reported yet today (Mac asleep or Claude in Chrome disconnected)."
+    ran = datetime.fromisoformat(yb["started"]).astimezone(TZ)
+    if ran.date() != today:
+        return f"No Yubit report today yet; last one was {ran.strftime('%a %-I:%M%p').lower()}."
+    return yb["summary"]
+
+
+def jobs_queued(goal: dict) -> str:
+    if not goal.get("total"):
+        return "Today's jobs aren't queued yet (the Mac scout hasn't run)."
+    left = goal["total"] - goal["done"]
+    return (f"{goal['total']} new jobs to apply to have been queued" +
+            (f" ({goal['done']} already done)." if goal["done"] else ".") if left else "All of today's jobs are already done.")
+
+
+def morning_text(today: date, yubit: dict | None, ac: dict) -> str:
+    return "\n".join([f"PAIS · {today.strftime('%a %b %-d')}", "", "TRADING", trading_overview(yubit, today), "",
+                      "TODAY", *today_lines(ac, today)])
 
 
 def evening_text(goal: dict) -> str | None:
@@ -143,7 +180,7 @@ def evening_text(goal: dict) -> str | None:
         return "PAIS 8pm: no job list was scouted today (the Mac scout never ran, maybe it was asleep all day)."
     left = [j for j in goal["jobs"] if not j["done"]]
     return "\n".join([f"PAIS 8pm: {goal['done']}/{goal['total']} applications done. Still open:",
-                      *(f"• {CAT_LABEL.get(j.get('category'), '')} {j['company']} - {j['role']}" for j in left),
+                      *(f"• {CAT_LABEL.get(j.get('category'), '')} {j['company']} - {_short(j['role'])}" for j in left),
                       f"Finish in Claude in Chrome ({SITE} > JOB has the prompt)."])
 
 
@@ -161,18 +198,8 @@ def _academics() -> dict:
 
 
 def morning(now: datetime) -> str:
-    today, yday = now.date(), now.date() - timedelta(days=1)
     snap = _read(config.SNAPSHOT_FILE, {})
-    try:
-        port = portfolio(snap.get("roi") or {})
-    except Exception:  # noqa: BLE001 - the text still goes out without the goal line
-        port = None
-    samples = [tuple(p) for p in _read(config.ROOT / "data/intraday.json", []) if isinstance(p, list)]
-    ac = _academics()
-    events = _read(daily_goal.EVENTS_FILE, [])
-    bits = [trading_line(equity_change(samples, yday), port), jobs_line(daily_goal.for_day(yday), events, yday),
-            school_line(ac), gym_line(snap.get("gym") or {})]
-    return morning_text(today, bits, ac, daily_goal.for_day(today))
+    return morning_text(now.date(), snap.get("yubit_brief"), _academics())
 
 
 def main(argv: list[str]) -> int:

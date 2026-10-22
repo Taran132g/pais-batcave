@@ -21,6 +21,17 @@ FINAL_OK = {"delivered", "sent"}          # "sent" = handed to carrier; carriers
 FINAL_BAD = {"undelivered", "failed", "canceled"}
 POLL_S, POLL_TRIES = 5, 12                # up to a minute for the carrier verdict
 MAX_SMS_CHARS = 1500                      # ~10 segments; Twilio's hard cap is 1600
+# One non-GSM character (·, •, ✓, curly quotes, emoji) switches the whole text to UCS-2:
+# 67 chars per segment instead of 153, roughly doubling the price. Texts are normalised; email keeps them.
+GSM_SWAP = {"·": "-", "•": "-", "✓": "+", "–": "-", "—": "-", "’": "'", "‘": "'", "“": '"', "”": '"', "…": "...", "→": "->"}
+GSM_BASIC = set("@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                "ÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà")
+
+
+def gsm(text: str) -> str:
+    """Keep an SMS in the cheap GSM-7 alphabet: swap common symbols, drop anything else."""
+    out = "".join(GSM_SWAP.get(c, c) for c in text)
+    return "".join(c for c in out if c in GSM_BASIC)
 
 
 def _env(key: str) -> str:
@@ -33,10 +44,11 @@ def _twilio(to: str, body: str) -> tuple[bool, str]:
         return False, "Twilio not configured"
     url = TWILIO_API.format(sid=sid)
     with httpx.Client(auth=(sid, token), timeout=20) as http:
-        res = http.post(f"{url}.json", data={"To": to, "From": sender, "Body": body[:MAX_SMS_CHARS]})
+        res = http.post(f"{url}.json", data={"To": to, "From": sender, "Body": gsm(body)[:MAX_SMS_CHARS]})
         if res.status_code >= 300:
             return False, f"Twilio HTTP {res.status_code}: {res.json().get('message', '')}"
-        msg_sid, status = res.json()["sid"], res.json()["status"]
+        msg = res.json()
+        msg_sid, status = msg["sid"], msg["status"]
         for _ in range(POLL_TRIES):
             if status in FINAL_BAD or status == "delivered":
                 break
@@ -63,7 +75,12 @@ def _email(subject: str, body: str) -> tuple[bool, str]:
 
 
 def send(subject: str, body: str) -> str:
-    """Text first; email if the text didn't land. Returns a one-line outcome for the journal."""
+    """Text first (if NOTIFY_SMS=1); email if the text didn't land. Returns a one-line outcome for the journal."""
+    if _env("NOTIFY_SMS") != "1":   # Taran: email only until A2P registration is done
+        try:
+            return _email(subject, body)[1]
+        except (smtplib.SMTPException, OSError) as exc:
+            return f"email failed: {type(exc).__name__}"
     try:
         ok, detail = _twilio(_env("NOTIFY_TO_PHONE"), body)
     except (httpx.HTTPError, KeyError, ValueError) as exc:

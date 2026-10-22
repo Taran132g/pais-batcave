@@ -90,3 +90,32 @@ def runs(task_id: str, limit: int = 10) -> list[dict]:
             "report": result["text"] if result else "",
         })
     return out
+
+
+def first_report(task_id: str) -> dict | None:
+    """The newest run's FIRST report: the scheduled output itself, not later follow-up chat in that session."""
+    newest = None
+    for account in _account_dirs():
+        for meta_path in account.glob("local_*.json"):
+            try:
+                meta = json.loads(meta_path.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            if meta.get("scheduledTaskId") == task_id and (newest is None or int(meta.get("createdAt") or 0) > newest[0]):
+                newest = (int(meta.get("createdAt") or 0), meta_path.with_suffix(""))
+    if newest is None:
+        return None
+    try:
+        with (newest[1] / "audit.jsonl").open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if '"result"' not in line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("type") == "result":
+                    return {"started": _ms_to_iso(newest[0]), "text": entry.get("result") or "", "ok": not entry.get("is_error")}
+    except OSError:
+        return None
+    return {"started": _ms_to_iso(newest[0]), "text": "", "ok": False}   # still running

@@ -21,7 +21,10 @@ publisher/publish.py  --scp every 15m--> ~/pais-cave/data/snapshot.json
 
 ## Daily goals + texts (added 2026-09-29)
 
-- **Daily 6 applications (3 finance + 3 software):** Mac `scout/daily_jobs.py` (LaunchAgent `com.taran.pais-dailyjobs`,
+- **RETIRED 2026-10-14 (Taran finds his own applications now; saved Claude usage):** `pais-cave-scout.timer` and
+  `pais-cave-brief-evening.timer` disabled on Oracle, JOB tab mission card removed, morning text no longer mentions jobs.
+  Old notes kept below for reference.
+- ~~**Daily 6 applications (3 finance + 3 software):**~~ Mac `scout/daily_jobs.py` (LaunchAgent `com.taran.pais-dailyjobs`,
   7:00 + hourly retry, log `daily_jobs.log`) runs `claude -p` + WebSearch, HTTP-verifies links, writes
   `data/daily_jobs/<date>.json` (incl. the Claude-in-Chrome prompt, PII, so only served behind login) and scps it to
   Oracle `~/pais-cave/data/daily_jobs/`. Runs on the Mac because Oracle's claude CLI login is rejected.
@@ -34,3 +37,11 @@ publisher/publish.py  --scp every 15m--> ~/pais-cave/data/snapshot.json
   `pais-cave-brief-evening.timer` (20:00 ET, only if today's 6 aren't done). `cave/notify.py` = Twilio SMS, waits for the
   carrier verdict, falls back to Gmail email when blocked (30034/30032 until A2P/toll-free registration clears).
   Dry run: `cd ~/pais-cave && .venv/bin/python -m cave.brief morning --dry`.
+  PSU blocks student API tokens, so it runs off the Canvas Calendar Feed (`CANVAS_ICS_URL`): due dates + tests, no grades.
+  Grades: `data/grades.json` (gitignored) written by a Claude-in-Chrome grade sync of the Canvas session → publisher `grades` section → Grades card.
+
+## Cloud move (2026-10-02)
+Job scout + AI Brief now run ON ORACLE: `pais-cave-scout.timer` (06:00 ET) and `pais-cave-ainews.timer` (06:15 ET),
+scripts in `~/pais-cave/scout/` (`PAIS_CLOUD=1`), Restart=on-failure every 20 min. Claude login = `CLAUDE_CODE_OAUTH_TOKEN`
+(personal account, from `claude setup-token`) in `~/pais-cave/.env`; it shares that account's usage limits. Mac LaunchAgents
+`com.taran.pais-dailyjobs` / `-ainews` are `.plist.disabled`. Cloud runs don't append to the vault Job Pipeline.

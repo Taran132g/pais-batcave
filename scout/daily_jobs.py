@@ -16,20 +16,23 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+CLOUD = os.environ.get("PAIS_CLOUD") == "1"   # Oracle: runs from ~/pais-cave, data is already local
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # vendored url_verify.py on Oracle
 sys.path.insert(0, str(Path.home() / "agentic_os"))
 
 TZ = ZoneInfo("America/New_York")
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_DIR = ROOT / "data/daily_jobs"
+ENV_FILE = ROOT / ".env"                      # Oracle only: CLAUDE_CODE_OAUTH_TOKEN
 HOST = "ubuntu@129.159.182.210"
 SSH_KEY = str(Path.home() / ".ssh/oracle_pais.key")
 REMOTE_DIR = "pais-cave/data/daily_jobs"
 PER_CATEGORY = 3
 ASK_PER_CATEGORY = 6          # over-ask: dead/closed URLs get dropped by the HTTP check
-CLAUDE = os.environ.get("CLAUDE_BIN", "/opt/homebrew/bin/claude")
+CLAUDE = os.environ.get("CLAUDE_BIN", "claude" if CLOUD else "/opt/homebrew/bin/claude")
 CLAUDE_TIMEOUT_S = 1200
 
-PROFILE_FILE = Path.home() / "agentic_os/application_profile.md"
+PROFILE_FILE = ROOT / "application_profile.md" if CLOUD else Path.home() / "agentic_os/application_profile.md"
 PROFILE_END = "### Cover letter"   # everything above this is form-fill facts
 
 CATEGORIES = {
@@ -50,8 +53,8 @@ def already_applied() -> list[str]:
     """Companies to skip: everything Gmail says Taran applied to, prior daily lists, and the vault pipeline."""
     names: set[str] = set()
     try:
-        res = _ssh("cat ~/pais-cave/data/job.json")
-        names |= {c["company"] for c in json.loads(res.stdout).get("companies", [])}
+        raw = (ROOT / "data/job.json").read_text() if CLOUD else _ssh("cat ~/pais-cave/data/job.json").stdout
+        names |= {c["company"] for c in json.loads(raw).get("companies", [])}
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
         pass
     for f in LOCAL_DIR.glob("*.json"):
@@ -85,14 +88,29 @@ def build_prompt(today: str, categories: dict[str, int], avoid: list[str]) -> st
     )
 
 
-def run_claude(prompt: str) -> list[dict]:
+def _env_value(key: str) -> str:
+    for line in ENV_FILE.read_text().splitlines():
+        name, sep, value = line.partition("=")
+        if sep and name.strip() == key:
+            return value.strip().strip('"').strip("'")
+    raise RuntimeError(f"{key} missing from {ENV_FILE}")
+
+
+def claude_web(prompt: str) -> str:
+    """One `claude -p` run with web search, billed to the subscription. Shared with ai_news.py."""
     env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}  # bill the subscription
+    if CLOUD:
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = _env_value("CLAUDE_CODE_OAUTH_TOKEN")
     proc = subprocess.run([CLAUDE, "-p", prompt, "--model", "sonnet", "--allowedTools", "WebSearch,WebFetch",
                            "--dangerously-skip-permissions"], capture_output=True, text=True,
                           timeout=CLAUDE_TIMEOUT_S, env=env, cwd=str(ROOT))
     if proc.returncode != 0:
         raise RuntimeError(f"claude exited {proc.returncode}: {(proc.stderr or proc.stdout)[-400:]}")
-    return parse_jobs(proc.stdout)
+    return proc.stdout
+
+
+def run_claude(prompt: str) -> list[dict]:
+    return parse_jobs(claude_web(prompt))
 
 
 def parse_jobs(raw: str) -> list[dict]:
@@ -127,12 +145,15 @@ def shortfall(jobs: list[dict]) -> dict[str, int]:
 
 def verify(jobs: list[dict]) -> list[dict]:
     try:
-        from tools.url_verify import filter_open
+        from url_verify import filter_open           # Oracle: vendored next to this file
     except ImportError:
-        return jobs
+        try:
+            from tools.url_verify import filter_open  # Mac: agentic_os
+        except ImportError:
+            return jobs
     kept, dropped = filter_open(jobs)
     for j in dropped:
-        print(f"[daily-jobs] dropped closed link: {j['company']} {j['url']}", flush=True)
+        print(f"[scout] dropped closed link: {j.get('company') or j.get('title')} {j['url']}", flush=True)
     return kept
 
 
@@ -175,7 +196,7 @@ def main() -> int:
     LOCAL_DIR.mkdir(parents=True, exist_ok=True)
     path = LOCAL_DIR / f"{today}.json"
     if path.exists():
-        if not on_oracle(path.name):
+        if not CLOUD and not on_oracle(path.name):
             push(path)
             print(f"[daily-jobs] re-pushed {path.name}")
         return 0
@@ -194,15 +215,23 @@ def main() -> int:
     payload = {"date": today, "scouted_at": datetime.now(TZ).isoformat(), "jobs": jobs,
                "claude_prompt": chrome_prompt(jobs)}
     path.write_text(json.dumps(payload, indent=1))
+    path.chmod(0o600)
+    if CLOUD:
+        _print_jobs(jobs)
+        return 0
     push(path)
     try:  # keep the vault Job Pipeline in step (the old Fill button works off it)
         from tools import job_sheet
         job_sheet.append_jobs(jobs)
     except Exception as exc:  # noqa: BLE001 - pipeline sync is best-effort
         print(f"[daily-jobs] vault pipeline not updated: {exc}", flush=True)
+    _print_jobs(jobs)
+    return 0
+
+
+def _print_jobs(jobs: list[dict]) -> None:
     for j in jobs:
         print(f"  {j['category']:8} {j['company']} - {j['role']}  {j['url']}")
-    return 0
 
 
 if __name__ == "__main__":

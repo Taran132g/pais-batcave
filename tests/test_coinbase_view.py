@@ -36,6 +36,7 @@ class FakeClient:
 @pytest.fixture(autouse=True)
 def clear_cache():
     coinbase_view._cache.update(at=0.0, value=None)
+    coinbase_view._excluded_entries = lambda: []  # tests that need an exclusion patch it back in
     coinbase_view.HISTORY_FILE = Path(__import__("tempfile").mkdtemp()) / "h.json"
 
 
@@ -70,3 +71,24 @@ def test_month_start_prefers_override_then_first_recorded_day(tmp_path):
     assert coinbase_view.month_start(hist, "2026-10", {}) == 1300.0
     assert coinbase_view.month_start(hist, "2026-09", {"2026-09": 1100}) == 1100.0
     assert coinbase_view.month_start(hist, "2026-11", {}) is None
+
+
+def test_excluded_amount_applies_from_its_since_time():
+    entries = [{"since": "2026-10-12T21:30:00Z", "amount": 1250, "note": "not Taran's money"}]
+    from datetime import datetime, timezone
+    before = datetime(2026, 10, 12, 21, 0, tzinfo=timezone.utc)
+    after = datetime(2026, 10, 12, 22, 0, tzinfo=timezone.utc)
+    assert coinbase_view.excluded_usd(before, entries) == 0
+    assert coinbase_view.excluded_usd(after, entries) == 1250
+
+
+def test_summary_total_leaves_out_money_that_is_not_taran(monkeypatch):
+    _patch(monkeypatch, {"can_view": True, "can_trade": False, "can_transfer": False})
+    monkeypatch.setattr(coinbase_view, "_excluded_entries",
+                        lambda: [{"since": "2026-01-01T00:00:00Z", "amount": 1250, "note": "friend's cash"}])
+    out = coinbase_view.summary()
+    assert out["total_raw"] == 1306.72
+    assert out["excluded"] == 1250
+    assert out["total"] == 56.72
+    day = next(iter(out["history"]))
+    assert out["history"][day] == 56.72  # the graph/history uses Taran's share only

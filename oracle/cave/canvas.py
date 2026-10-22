@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from . import config
+from . import canvas_ics, config
 from .auth import _read_env_value
 
 TZ = ZoneInfo("America/New_York")
@@ -21,7 +21,7 @@ CALENDAR_DAYS = 42
 WEEKDAYS = "MTWRFSU"   # registrar letters: R = Thursday, U = Sunday
 
 TEST_WORDS = re.compile(r"\b(exam|midterm|mid-term|final|quiz|test|prelim)\b", re.I)
-NOT_A_TEST = re.compile(r"\b(practice|review|study guide|solutions?|key|makeup request|survey|corrections?)\b", re.I)
+NOT_A_TEST = re.compile(r"\b(project|paper|report|practice|review|study guide|solutions?|key|makeup request|survey|corrections?)\b", re.I)
 EXAM_WORDS = re.compile(r"\b(exam|midterm|mid-term|final|prelim)\b", re.I)
 COURSE_CODE = re.compile(r"\b([A-Z]{1,5}(?:-[A-Z]{1,3})?\s?\d{3}[A-Z]?)\b")
 WORK_TYPES = {"assignment", "quiz", "discussion_topic", "assessment_request"}
@@ -29,7 +29,10 @@ WORK_TYPES = {"assignment", "quiz", "discussion_topic", "assessment_request"}
 
 # ---------- pure ----------
 
-def short_code(course: dict) -> str:
+def short_code(course: dict, aliases: dict | None = None) -> str:
+    for key in (course.get("name"), course.get("course_code")):
+        if key and (aliases or {}).get(key):
+            return aliases[key]
     for text in (course.get("course_code") or "", course.get("name") or ""):
         m = COURSE_CODE.search(text)
         if m:
@@ -79,9 +82,9 @@ def classes_on(day: date, timetable: list[dict]) -> list[dict]:
 
 
 def build(courses: list[dict], planner: list[dict], events: list[dict], timetable: list[dict],
-          now: datetime, base: str = DEFAULT_BASE) -> dict:
+          now: datetime, base: str = DEFAULT_BASE, aliases: dict | None = None) -> dict:
     today = now.astimezone(TZ).date()
-    codes = {c["id"]: short_code(c) for c in courses}
+    codes = {c["id"]: short_code(c, aliases) for c in courses}
     items = [i for i in (_item(p, codes, base) for p in planner) if i]
     tests = []
     for i in items:
@@ -92,7 +95,8 @@ def build(courses: list[dict], planner: list[dict], events: list[dict], timetabl
         start = _local(e.get("start_at"))
         kind = _is_test(e.get("title") or "", "")
         if start and kind:
-            tests.append({"course": codes.get(_course_id(e.get("context_code"))) or e.get("context_name") or "",
+            course = codes.get(e.get("context_code")) or codes.get(_course_id(e.get("context_code")))
+            tests.append({"course": course or e.get("context_name") or "",
                           "title": e["title"], "type": "event", "due": start.isoformat(), "url": e.get("html_url") or "",
                           "kind": kind, "location": e.get("location_name") or "", "done": False, "missing": False})
     tests = _dedupe(sorted(tests, key=lambda t: t["due"]))
@@ -167,12 +171,20 @@ def _get_all(http: httpx.Client, url: str, params: dict) -> list[dict]:
     return out
 
 
-def load_timetable() -> list[dict]:
-    path = config.ROOT / "classes.json"
+def _classes_file() -> dict:
     try:
-        return json.loads(path.read_text()).get("classes", [])
+        return json.loads((config.ROOT / "classes.json").read_text())
     except (OSError, json.JSONDecodeError):
-        return []
+        return {}
+
+
+def load_timetable() -> list[dict]:
+    return _classes_file().get("classes", [])
+
+
+def load_aliases() -> dict:
+    """Canvas course names that don't contain a course code, e.g. merged sections → "STAT 319"."""
+    return _classes_file().get("aliases", {})
 
 
 def fetch(now: datetime | None = None) -> dict:
@@ -180,6 +192,9 @@ def fetch(now: datetime | None = None) -> dict:
     token = _read_env_value(config.LOCAL_ENV_FILE, "CANVAS_TOKEN")
     base = (_read_env_value(config.LOCAL_ENV_FILE, "CANVAS_BASE_URL") or DEFAULT_BASE).rstrip("/")
     timetable = load_timetable()
+    feed = _read_env_value(config.LOCAL_ENV_FILE, "CANVAS_ICS_URL")
+    if not token and feed:
+        return fetch_feed(feed, timetable, now, base)
     if not token:
         return {"status": "no_token", "timetable": timetable,
                 "classes_today": classes_on(now.date(), timetable)}
@@ -193,4 +208,20 @@ def fetch(now: datetime | None = None) -> dict:
         contexts = [f"course_{c['id']}" for c in courses][:10]   # Canvas caps context_codes at 10
         events = _get_all(http, "/calendar_events", {"type": "event", "start_date": start, "end_date": end,
                                                      "context_codes[]": contexts, "per_page": 100}) if contexts else []
-    return build(courses, planner, events, timetable, now, base)
+    return build(courses, planner, events, timetable, now, base, load_aliases())
+
+
+def from_feed(text: str, timetable: list[dict], now: datetime, base: str = DEFAULT_BASE) -> dict:
+    """Calendar-feed mode: due dates, tests and events, but Canvas doesn't put grades or
+    submission status in the feed, so those fields are None rather than a misleading 0."""
+    courses, planner, events = canvas_ics.parse(text)
+    data = build(courses, planner, events, timetable, now, base, load_aliases())
+    return {**data, "source": "feed", "grades": [], "missing": None, "yesterday": None}
+
+
+def fetch_feed(url: str, timetable: list[dict], now: datetime, base: str) -> dict:
+    if not url.startswith("https://") or "/feeds/calendars/" not in url:
+        return {"status": "error", "error": "CANVAS_ICS_URL doesn't look like a Canvas calendar feed.", "timetable": timetable}
+    res = httpx.get(url, timeout=30, follow_redirects=True)
+    res.raise_for_status()
+    return from_feed(res.text, timetable, now, base)

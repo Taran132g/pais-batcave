@@ -12,7 +12,14 @@ def test_buckets_samples_into_ohlc():
     samples = [(T0 + 0, 100.0), (T0 + 20, 105.0), (T0 + 40, 98.0), (T0 + 60, 101.0), (T0 + 80, 103.0)]
     candles = intraday.build_candles(samples, "1m", daily=[])
     assert candles[0] == {"time": T0, "open": 100.0, "high": 105.0, "low": 98.0, "close": 98.0}
-    assert candles[1] == {"time": T0 + 60, "open": 101.0, "high": 103.0, "low": 101.0, "close": 103.0}
+    # chained: opens at the prior close, so the range widens down to 98
+    assert candles[1] == {"time": T0 + 60, "open": 98.0, "high": 103.0, "low": 98.0, "close": 103.0}
+
+
+def test_one_point_buckets_still_get_a_body():
+    samples = [(T0, 100.0), (T0 + 3600, 110.0), (T0 + 7200, 105.0)]  # e.g. hourly backfill on the 1H view
+    candles = intraday.build_candles(samples, "1h", daily=[])
+    assert [(c["open"], c["close"]) for c in candles] == [(100.0, 100.0), (100.0, 110.0), (110.0, 105.0)]
 
 
 def test_daily_candles_backfill_days_without_samples():

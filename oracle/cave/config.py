@@ -1,4 +1,5 @@
 """Oracle-side settings for the getpais.company PAIS API (served under /api/cave via Vercel)."""
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,5 +16,7 @@ LOGIN_WINDOW_S = 300
 SNAPSHOT_FILE = ROOT / "data/snapshot.json"
 STALE_AFTER_S = 3600
 COOKIE_PATH = "/api/cave"
+# Set on Oracle (systemd unit) so one sign-in covers getpais.company and trade.getpais.company.
+COOKIE_DOMAIN = os.environ.get("PAIS_COOKIE_DOMAIN") or None
 
 COINBASE_KEY_FILE = ROOT / ".coinbase_key.json"   # CDP view-only key (600); never in git

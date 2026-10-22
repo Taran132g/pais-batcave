@@ -1,0 +1,9 @@
+[Unit]
+Description=PAIS pick today's 6 applications (3 finance + 3 software)
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target

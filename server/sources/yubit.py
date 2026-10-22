@@ -1,5 +1,6 @@
 """Yubit account snapshots (written by the daily/weekly desktop agents)."""
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import config
@@ -30,7 +31,9 @@ def snapshots() -> list[dict]:
     for path in _snapshot_files():
         snap = _load(path)
         if snap:
-            out.append(snap)
+            # When the read landed (file written), which can be hours after as_of; the live chart snaps then.
+            arrived = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+            out.append({**snap, "_arrived": arrived})
     return out
 
 

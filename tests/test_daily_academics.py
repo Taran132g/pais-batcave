@@ -89,20 +89,19 @@ def test_evening_text_only_when_incomplete():
 
 def test_morning_text_sections():
     ac = canvas.build(COURSES, PLANNER, [], TIMETABLE, NOW)
-    goal = daily_goal.status(date(2026, 9, 29), JOBS, [], {})
     samples = [(datetime(2026, 9, 27, 23, tzinfo=TZ).timestamp(), 1000.0),
-               (datetime(2026, 9, 28, 12, tzinfo=TZ).timestamp(), 1030.0),
                (datetime(2026, 9, 28, 23, tzinfo=TZ).timestamp(), 1050.0)]
-    change = brief.equity_change(samples, date(2026, 9, 28))
-    assert change == (1000.0, 1050.0)
-    line = brief.trading_line(change, {"mtd_pct": 12.34, "target_pct": 20})
-    assert "+$50.00" in line and "+5.0%" in line and "MTD +12.3%" in line
-    text = brief.morning_text(date(2026, 9, 29), [line, brief.school_line(ac)], ac, goal)
-    assert "10:35am STAT 319 (Thomas 102)" in text
-    assert "Due today: STAT 319 HW 4 11:59pm" in text
+    assert brief.equity_change(samples, date(2026, 9, 28)) == (1000.0, 1050.0)
+    yb = {"status": "ok", "started": "2026-09-29T12:10:00+00:00", "summary": "BTC short +$110, watch PCE Wed."}
+    text = brief.morning_text(date(2026, 9, 29), yb, ac)
+    assert "TRADING\nBTC short +$110, watch PCE Wed." in text
+    assert "10:35am STAT 319 (Thomas 102)" in text and "Due today: STAT 319 HW 4 11:59pm" in text
     assert "Next test: STAT 319 Midterm 1 · Thu Oct 8 (9d)" in text
-    assert "Apply today (0/2)" in text and "FIN Fulton Bank - Analyst Intern" in text
-    assert "missed: Lab 2" in text
+    assert "jobs" not in text                                                    # daily scout retired 2026-10-14
+    assert "Fulton" not in text and "YESTERDAY" not in text
+    stale = brief.morning_text(date(2026, 9, 30), yb, ac)
+    assert "No Yubit report today yet" in stale
+    assert "hasn't reported yet" in brief.trading_overview({"status": "no report"}, date(2026, 9, 29))
 
 
 def test_scout_pick_tops_up_per_category():
@@ -116,3 +115,88 @@ def test_scout_pick_tops_up_per_category():
 def test_scout_parse_ignores_prose_and_bad_rows():
     raw = 'Here you go:\n```json\n[{"category":"finance","company":"X","url":"https://x"},{"category":"other","company":"Y","url":"https://y"}]\n```'
     assert [j["company"] for j in daily_jobs.parse_jobs(raw)] == ["X"]
+
+
+FEED = """BEGIN:VCALENDAR\r
+VERSION:2.0\r
+BEGIN:VEVENT\r
+DTSTART:20260930T035900Z\r
+SUMMARY:HW 4 [STAT 319 001: Elem Mathematical\r
+  Statistics]\r
+UID:event-assignment-111\r
+URL;VALUE=URI:https://psu.instructure.com/calendar?include_contexts=course_1&month=09#assignment_111\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+DTSTART;VALUE=DATE:20261002\r
+SUMMARY:Quiz 3 [CMPSC 448 002]\r
+UID:event-assignment-222\r
+URL;VALUE=URI:https://psu.instructure.com/calendar?include_contexts=course_2#assignment_222\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+DTSTART;TZID=America/New_York:20261008T103500\r
+SUMMARY:Midterm 1 (in class) [STAT 319 001: Elem Mathematical Statistics]\r
+UID:event-calendar-event-333\r
+LOCATION:Thomas 102\r
+URL;VALUE=URI:https://psu.instructure.com/calendar?include_contexts=course_1#calendar_event_333\r
+END:VEVENT\r
+END:VCALENDAR\r
+"""
+
+
+def test_calendar_feed_mode():
+    ac = canvas.from_feed(FEED, TIMETABLE, NOW)
+    assert ac["source"] == "feed" and ac["grades"] == [] and ac["missing"] is None and ac["yesterday"] is None
+    assert [(i["course"], i["title"]) for i in ac["todo"]] == [("STAT 319", "HW 4"), ("CMPSC 448", "Quiz 3")]
+    assert ac["todo"][1]["due"].startswith("2026-10-02T23:59")                  # all-day = due end of day
+    exam = canvas.next_test(ac["tests"])
+    assert (exam["course"], exam["title"], exam["kind"]) == ("STAT 319", "Midterm 1 (in class)", "exam")
+    assert exam["due"].startswith("2026-10-08T10:35")
+    text = brief.morning_text(date(2026, 9, 29), None, ac)
+    assert "Due today: STAT 319 HW 4 11:59pm" in text and "Next test: STAT 319 Midterm 1 (in class)" in text
+    assert brief.school_line(ac) is None                                         # no submission data → no fake 0/N
+
+
+def test_aliases_and_projects():
+    merged = {"id": 9, "name": "Section Merge: Elem.Mathematical Statistics(319-002)"}
+    assert canvas.short_code(merged, {merged["name"]: "STAT 319"}) == "STAT 319"
+    assert canvas._is_test("Midterm Project (Deadline: Oct 11)", "assignment") is None
+
+
+def test_sms_stays_in_gsm_alphabet():
+    from cave import notify
+    text = notify.gsm("PAIS · Tue\n✓ FIN Fulton – Intern\n• SWE “Duo” … 🚀")
+    assert text == 'PAIS - Tue\n+ FIN Fulton - Intern\n- SWE "Duo" ... '
+    assert all(c in notify.GSM_BASIC for c in text)
+
+
+def test_academic_mail_classifier():
+    from cave.mail_flags import classify
+    own = "taran.impact@gmail.com"
+    g = classify("Gradescope <no-reply@gradescope.com>", "Your submission to Homework 2 has been graded", own)
+    assert g["kind"] == "grade"
+    c = classify('"Smith, Jane" <jxs1@psu.edu>', "STAT 319 Midterm 1 room change", own)
+    assert (c["course"], c["kind"]) == ("STAT 319", "exam")
+    assert classify("Canvas <notifications@instructure.com>", "Recent Canvas Notifications", own)["kind"] == "update"
+    assert classify('"Doe, Alex" <axd5@psu.edu>', "Re: Scheduling Meeting", own) is None       # SPSA, not class
+    assert classify("PSU Athletics <x@psu.edu>", "Football tickets for your class", own) is None
+    assert classify("Udemy <deals@udemy.com>", "New course: master Python", own) is None           # ad, not class
+    assert classify(own, "HW 3 notes", own) is None
+
+
+def test_inbox_line():
+    feed = [{"date": "2026-09-28T15:00:00+00:00", "kind": "grade", "course": "A-I 370", "from": "Gradescope", "subject": "graded"},
+            {"date": "2026-09-28T16:00:00+00:00", "kind": "exam", "course": "STAT 319", "from": "x", "subject": "Midterm"},
+            {"date": "2026-09-28T17:00:00+00:00", "kind": "update", "course": "", "from": "Canvas", "subject": "x"},
+            {"date": "2026-09-20T17:00:00+00:00", "kind": "grade", "course": "Old", "from": "x", "subject": "x"}]
+    assert brief.inbox_line(feed, date(2026, 9, 28)) == "School mail: 1 grade posted (A-I 370) · exam notice: STAT 319 · 1 other"
+    assert brief.inbox_line(feed, date(2026, 9, 27)) is None
+
+
+def test_ai_news_parse():
+    import ai_news
+    raw = 'Sure!\n```json\n{"headline": "Agents everywhere", "stories": [{"title": "A", "url": "https://x.com/a", "summary": "s"},' \
+          ' {"title": "B", "url": "http://insecure"}, {"url": "https://no-title"}], "learn": {"title": "RAG", "why": "w", "url": "https://r"}}\n```'
+    issue = ai_news.parse_issue(raw)
+    assert issue["headline"] == "Agents everywhere" and [s["title"] for s in issue["stories"]] == ["A"]
+    assert issue["learn"]["title"] == "RAG"
+    assert ai_news.parse_issue("no json here") is None

@@ -15,10 +15,10 @@ import time
 from datetime import datetime, timezone
 
 from server import config
-from server.sources import agents, desktop_runs, fitbit, yubit
+from server.sources import desktop_runs, fitbit, yubit
 from server.sources.common import safe_read
 
-from . import gym, outlook, roi
+from . import fund, gym, outlook, roi, yubit_brief
 
 GOALS_FILE = config.ROOT / "goals.json"
 OUT_FILE = config.ROOT / "snapshot.json"
@@ -50,18 +50,56 @@ def _section(name, fn, *args):
 def _roi(goals):
     daily = desktop_runs.runs("daily-trading-assistant-open-positions", 5)
     latest_report = next((r["report"] for r in daily if r["status"] == "done"), "")
-    return roi.build(yubit.snapshots(), latest_report, goals["roi"]["monthly_target_pct"])
+    return roi.build(yubit.snapshots(), latest_report, goals["roi"]["monthly_target_pct"],
+                     transfers=goals["roi"].get("transfers"))
+
+
+AI_NEWS_DIR = config.ROOT / "data/ai_news"   # written by scout/ai_news.py each morning
+
+
+def _ai_news() -> dict:
+    issues = sorted(AI_NEWS_DIR.glob("*.json"))
+    return {"status": "ok", **json.loads(issues[-1].read_text())} if issues else {"status": "none"}
+
+
+DEGREE_FILE = config.ROOT / "data/degree.json"   # hand-maintained degree audit + plan (private)
+
+
+def _degree() -> dict:
+    return {"status": "ok", **json.loads(DEGREE_FILE.read_text())} if DEGREE_FILE.exists() else {"status": "none"}
+
+
+GRADES_FILE = config.ROOT / "data/grades.json"   # Canvas grades read in Taran's browser session (private)
+
+
+def _grades() -> dict:
+    return {"status": "ok", **json.loads(GRADES_FILE.read_text())} if GRADES_FILE.exists() else {"status": "none"}
+
+
+EXIT_PLANS_FILE = config.ROOT / "data/exit_plans.json"   # exit options per open position (private)
+
+
+def _exit_plans() -> dict:
+    return {"status": "ok", **json.loads(EXIT_PLANS_FILE.read_text())} if EXIT_PLANS_FILE.exists() else {"status": "none"}
+
+
+TRADE_NOTES_FILE = config.ROOT / "data/trade_notes.json"   # why Taran closed each trade (private)
 
 
 def build_snapshot() -> dict:
     goals = json.loads(GOALS_FILE.read_text())
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "agents": _section("agents", agents.roster),
         "roi": _section("roi", _roi, goals),
         # "job" is computed on Oracle from Gmail (cave/job_runner.py), so the Mac doesn't scan Gmail.
         "gym": _section("gym", lambda: gym.build(fitbit.rows(), _workouts(), goals["gym"])),
         "outlook": _section("outlook", outlook.build, OUTLOOK_DIR),
+        "yubit_brief": _section("yubit_brief", yubit_brief.build),   # 9am email's trading overview
+        "ai_news": _section("ai_news", _ai_news),
+        "degree": _section("degree", _degree),
+        "grades": _section("grades", _grades),   # PSU blocks API tokens, so grades come from a browser sync
+        "exit_plans": _section("exit_plans", _exit_plans),
+        "fund": _section("fund", fund.build, TRADE_NOTES_FILE),   # trade.getpais.company Fund tab
     }
 
 

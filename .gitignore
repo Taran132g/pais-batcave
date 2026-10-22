@@ -18,3 +18,7 @@ oracle/assets/bunker.webp
 .*.bak*
 *.bak*
 .DS_Store
+
+# Personal money details (friend funds, transfers); kept local, repo is public
+goals.json
+oracle/goals.json

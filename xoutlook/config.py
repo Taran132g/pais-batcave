@@ -16,7 +16,6 @@ VAULT_DIR = HOME / "Library/Mobile Documents/iCloud~md~obsidian/Documents/Digita
 
 # Keep in sync with SOURCES in pais-site/cave/js/tabs/trading.js.
 SOURCES = [
-    {"name": "Dr. Profit", "handle": "DrProfitCrypto"},
     {"name": "DiligentPlane", "handle": "DiligentPlane"},
     {"name": "No Limit Gains", "handle": "NoLimitGains"},
     {"name": "Jason Pizzino", "handle": "jasonpizzino"},

@@ -5,6 +5,7 @@ After=network.target
 [Service]
 User=ubuntu
 WorkingDirectory=/home/ubuntu/pais-cave
+Environment=PAIS_COOKIE_DOMAIN=getpais.company
 ExecStart=/home/ubuntu/pais-cave/.venv/bin/python -m cave.app
 Restart=always
 RestartSec=5

@@ -83,6 +83,22 @@ def _overrides() -> dict:
         return {}
 
 
+def _excluded_entries() -> list[dict]:
+    """goals.json roi.coinbase_excluded: money sitting in the account that isn't Taran's."""
+    try:
+        return json.loads((config.ROOT / "goals.json").read_text())["roi"].get("coinbase_excluded", [])
+    except (OSError, KeyError, json.JSONDecodeError):
+        return []
+
+
+def excluded_usd(now: datetime, entries: list[dict]) -> float:
+    """Sum of excluded amounts in the account at `now` (between `since` and optional `until`)."""
+    def _at(ts: str) -> datetime:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    return sum(float(e["amount"]) for e in entries
+               if _at(e["since"]) <= now and (not e.get("until") or now < _at(e["until"])))
+
+
 def summary() -> dict:
     if _cache["value"] and time.time() - _cache["at"] < CACHE_S:
         return _cache["value"]
@@ -97,10 +113,15 @@ def summary() -> dict:
     bal = breakdown["portfolio_balances"]
     holdings = _merge_cash([h for h in (_holding(p) for p in breakdown.get("spot_positions", [])) if h])
     perps = breakdown.get("perp_positions", []) + breakdown.get("futures_positions", [])
+    now = datetime.now(timezone.utc)
+    raw_total = round(_f(bal.get("total_balance")), 2)
+    excluded = round(excluded_usd(now, _excluded_entries()), 2)
     value = {
-        "as_of": datetime.now(timezone.utc).isoformat(),
+        "as_of": now.isoformat(),
         "portfolio": portfolio.get("name"),
-        "total": round(_f(bal.get("total_balance")), 2),
+        "total": round(raw_total - excluded, 2),   # Taran's share: drives goal, history, graph
+        "total_raw": raw_total,
+        "excluded": excluded,
         "cash": round(_f(bal.get("total_cash_equivalent_balance")), 2),
         "crypto": round(_f(bal.get("total_crypto_balance")), 2),
         "stocks": round(_f(bal.get("total_equities_balance")), 2),
@@ -111,7 +132,6 @@ def summary() -> dict:
         "derivatives": len(perps),
         "read_only": True,
     }
-    now = datetime.now(timezone.utc)
     history = record_daily(value["total"], now.strftime("%Y-%m-%d"))
     value["history"] = history
     value["month_start"] = month_start(history, now.strftime("%Y-%m"), _overrides())

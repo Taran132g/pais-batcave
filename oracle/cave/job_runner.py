@@ -10,7 +10,7 @@ from . import config
 os.environ.setdefault("PAIS_GMAIL_ENV", str(config.LOCAL_ENV_FILE))
 os.environ.setdefault("PAIS_GMAIL_CACHE", str(config.ROOT / "data/gmail_jobs_cache.json"))
 
-from . import gmail_jobs, job  # noqa: E402  (env must be set before gmail_jobs reads its paths)
+from . import gmail_jobs, job, mail_flags  # noqa: E402  (env must be set before gmail_jobs reads its paths)
 
 OUT = config.ROOT / "data/job.json"
 EVENTS_OUT = config.ROOT / "data/job_events.json"   # recent events for the daily application goal
@@ -33,6 +33,10 @@ def main() -> int:
     tmp.write_text(json.dumps(recent))
     tmp.chmod(0o600)
     tmp.replace(EVENTS_OUT)
+    try:
+        print(f"[mail-flags] {mail_flags.run()}")
+    except Exception as exc:  # noqa: BLE001 - labelling is extra; the Job tab data is already written
+        print(f"[mail-flags] failed: {type(exc).__name__}: {exc}")
     print(f"[jobs] {data.get('status')} · {data.get('counts', {}).get('applications', 0)} companies")
     return 0
 
